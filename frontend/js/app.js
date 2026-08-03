@@ -71,6 +71,8 @@ const MainLayout = {
     const menuItems = [
       { key: "channels", label: "渠道管理", icon: "🌐" },
       { key: "tasks", label: "采集任务", icon: "🚀" },
+      { key: "jobs", label: "岗位列表", icon: "📋" },
+      { key: "export", label: "Excel导出", icon: "📤" },
     ];
     return { menuItems };
   },
@@ -641,6 +643,299 @@ const TasksPage = {
   `,
 };
 
+/* ==================== 岗位列表页 ==================== */
+const JobsPage = {
+  emits: ["toast"],
+  setup(props, { emit }) {
+    const jobs = ref([]);
+    const stats = ref({ total: 0, standardized: 0, unstandardized: 0, task_count: 0 });
+    const loading = ref(false);
+    const filters = reactive({
+      keyword: "",
+      task_id: "",
+      is_standardized: "",
+      work_location_type: "",
+    });
+    const pagination = reactive({ page: 1, page_size: 15, total: 0 });
+    const detailJob = ref(null);
+    const tasks = ref([]);
+
+    async function loadStats() {
+      try {
+        const res = await api.getJobStats();
+        stats.value = res;
+      } catch (e) {
+        emit("toast", { type: "error", title: "统计失败", message: e.message });
+      }
+    }
+
+    async function loadTasks() {
+      try {
+        const res = await api.listTasks({ limit: 100 });
+        tasks.value = res.data.items || [];
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function loadJobs() {
+      loading.value = true;
+      try {
+        const params = {
+          page: pagination.page,
+          page_size: pagination.page_size,
+        };
+        if (filters.keyword) params.keyword = filters.keyword;
+        if (filters.task_id) params.task_id = Number(filters.task_id);
+        if (filters.is_standardized !== "") params.is_standardized = filters.is_standardized === "true";
+        if (filters.work_location_type) params.work_location_type = filters.work_location_type;
+        const res = await api.listJobs(params);
+        jobs.value = res.items || [];
+        pagination.total = res.total || 0;
+      } catch (e) {
+        emit("toast", { type: "error", title: "加载失败", message: e.message });
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    async function standardize() {
+      try {
+        const params = filters.task_id ? { taskId: Number(filters.task_id) } : {};
+        const res = await api.standardizeJobs(params.taskId);
+        emit("toast", { type: "success", title: "标准化完成", message: `更新 ${res.stats.updated} 条` });
+        await loadJobs();
+        await loadStats();
+      } catch (e) {
+        emit("toast", { type: "error", title: "标准化失败", message: e.message });
+      }
+    }
+
+    async function openDetail(job) {
+      try {
+        const res = await api.getJob(job.id);
+        detailJob.value = res;
+      } catch (e) {
+        emit("toast", { type: "error", title: "加载详情失败", message: e.message });
+      }
+    }
+
+    function resetFilters() {
+      filters.keyword = "";
+      filters.task_id = "";
+      filters.is_standardized = "";
+      filters.work_location_type = "";
+      pagination.page = 1;
+      loadJobs();
+    }
+
+    watch(() => ({ ...filters }), () => { pagination.page = 1; loadJobs(); }, { deep: true });
+
+    onMounted(() => {
+      loadJobs();
+      loadStats();
+      loadTasks();
+    });
+
+    return {
+      jobs, stats, loading, filters, pagination, detailJob, tasks,
+      loadJobs, standardize, openDetail, resetFilters,
+    };
+  },
+  template: `
+    <div>
+      <div class="page-header">
+        <h1>岗位列表</h1>
+        <button class="btn-primary" @click="standardize">🔄 一键标准化</button>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-value">{{ stats.total }}</div><div class="stat-label">岗位总数</div></div>
+        <div class="stat-card"><div class="stat-value">{{ stats.standardized }}</div><div class="stat-label">已标准化</div></div>
+        <div class="stat-card"><div class="stat-value">{{ stats.unstandardized }}</div><div class="stat-label">未标准化</div></div>
+        <div class="stat-card"><div class="stat-value">{{ stats.task_count }}</div><div class="stat-label">来源任务</div></div>
+      </div>
+
+      <div class="card filters">
+        <input v-model="filters.keyword" placeholder="搜索标题/公司/描述" @keyup.enter="loadJobs" />
+        <select v-model="filters.task_id">
+          <option value="">全部任务</option>
+          <option v-for="t in tasks" :key="t.id" :value="t.id">{{ t.name }}</option>
+        </select>
+        <select v-model="filters.is_standardized">
+          <option value="">全部状态</option>
+          <option value="true">已标准化</option>
+          <option value="false">未标准化</option>
+        </select>
+        <select v-model="filters.work_location_type">
+          <option value="">全部工作方式</option>
+          <option value="online_remote">线上远程</option>
+          <option value="offline_office">线下办公</option>
+        </select>
+        <button class="btn-secondary" @click="resetFilters">重置</button>
+      </div>
+
+      <div class="card">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>职位</th>
+              <th>公司</th>
+              <th>地点</th>
+              <th>薪资</th>
+              <th>状态</th>
+              <th>采集时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="j in jobs" :key="j.id">
+              <td>{{ j.id }}</td>
+              <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis">{{ j.title }}</td>
+              <td>{{ j.company }}</td>
+              <td>{{ j.location }}</td>
+              <td>{{ j.salary }}</td>
+              <td>
+                <span class="badge" :class="j.is_standardized ? 'badge-success' : 'badge-idle'">
+                  {{ j.is_standardized ? '已标准化' : '未标准化' }}
+                </span>
+              </td>
+              <td>{{ new Date(j.created_at).toLocaleString() }}</td>
+              <td>
+                <button class="btn-secondary" @click="openDetail(j)">详情</button>
+              </td>
+            </tr>
+            <tr v-if="!loading && jobs.length === 0">
+              <td colspan="8" style="text-align:center;color:#9ca3af">暂无岗位数据，先去运行采集任务吧</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="pagination" v-if="pagination.total > 0">
+          <button :disabled="pagination.page === 1" @click="pagination.page--; loadJobs()">上一页</button>
+          <span>第 {{ pagination.page }} 页 / 共 {{ Math.ceil(pagination.total / pagination.page_size) }} 页</span>
+          <button :disabled="pagination.page * pagination.page_size >= pagination.total" @click="pagination.page++; loadJobs()">下一页</button>
+        </div>
+      </div>
+
+      <div v-if="detailJob" class="modal-overlay" @click.self="detailJob = null">
+        <div class="modal" style="max-width:720px">
+          <div class="modal-header">
+            <h3>岗位详情</h3>
+            <button class="btn-secondary" @click="detailJob = null">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="detail-section">
+              <div class="detail-title">{{ detailJob.title }}</div>
+              <div class="detail-subtitle">{{ detailJob.company }} · {{ detailJob.location }}</div>
+              <div class="detail-salary">{{ detailJob.salary }}</div>
+            </div>
+            <div class="detail-section">
+              <h4>职位描述</h4>
+              <div class="detail-desc">{{ detailJob.description }}</div>
+            </div>
+            <div class="detail-section" v-if="detailJob.matched_skills && detailJob.matched_skills.length">
+              <h4>匹配技能</h4>
+              <div class="skill-tags">
+                <span v-for="(s, idx) in detailJob.matched_skills" :key="idx" class="skill-tag">
+                  {{ s.primary }}{{ s.secondary ? ' / ' + s.secondary : '' }}
+                </span>
+              </div>
+            </div>
+            <div class="detail-section" v-if="detailJob.standardized_data">
+              <h4>标准化数据</h4>
+              <pre class="json-block">{{ JSON.stringify(detailJob.standardized_data, null, 2) }}</pre>
+            </div>
+            <div class="detail-section">
+              <h4>来源链接</h4>
+              <a :href="detailJob.url" target="_blank" class="link">{{ detailJob.url }}</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `,
+};
+
+/* ==================== Excel 导出页 ==================== */
+const ExportPage = {
+  emits: ["toast"],
+  setup(props, { emit }) {
+    const tasks = ref([]);
+    const selectedTask = ref("");
+    const standardizedOnly = ref(true);
+    const exporting = ref(false);
+
+    async function loadTasks() {
+      try {
+        const res = await api.listTasks({ limit: 100 });
+        tasks.value = res.data.items || [];
+      } catch (e) {
+        emit("toast", { type: "error", title: "加载失败", message: e.message });
+      }
+    }
+
+    async function exportExcel() {
+      exporting.value = true;
+      try {
+        const blob = await api.exportExcel(
+          selectedTask.value ? Number(selectedTask.value) : null,
+          standardizedOnly.value
+        );
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `jobs_export_${new Date().toISOString().slice(0,19).replace(/[-:T]/g,'')}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        emit("toast", { type: "success", title: "导出成功", message: "Excel 已开始下载" });
+      } catch (e) {
+        emit("toast", { type: "error", title: "导出失败", message: e.message });
+      } finally {
+        exporting.value = false;
+      }
+    }
+
+    onMounted(loadTasks);
+
+    return { tasks, selectedTask, standardizedOnly, exporting, exportExcel };
+  },
+  template: `
+    <div>
+      <div class="page-header">
+        <h1>Excel 导出</h1>
+      </div>
+      <div class="card" style="max-width:560px">
+        <div class="form-group">
+          <label>选择任务（可选）</label>
+          <select v-model="selectedTask">
+            <option value="">全部任务</option>
+            <option v-for="t in tasks" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" v-model="standardizedOnly" />
+            仅导出已标准化数据
+          </label>
+        </div>
+        <div class="form-info">
+          导出文件包含两个 Sheet：<br/>
+          1. <b>平台公司导入</b>：按公司名称去重；<br/>
+          2. <b>任务导入</b>：每条岗位一行，字段严格对齐模板。
+        </div>
+        <button class="btn-primary" :disabled="exporting" @click="exportExcel" style="margin-top:16px">
+          <span v-if="exporting" class="loading"></span>
+          <span v-else>📥 一键导出 Excel</span>
+        </button>
+      </div>
+    </div>
+  `,
+};
+
 /* ==================== 根组件 ==================== */
 const App = {
   setup() {
@@ -686,7 +981,7 @@ const App = {
 
     onMounted(() => {
       const hash = window.location.hash.replace("#", "") || "channels";
-      const valid = ["channels", "tasks"];
+      const valid = ["channels", "tasks", "jobs", "export"];
       currentRoute.value = valid.includes(hash) ? hash : "channels";
       if (isLoggedIn.value) validateToken();
     });
@@ -715,6 +1010,8 @@ const App = {
       >
         <channels-page v-if="currentRoute === 'channels'" @toast="toast" />
         <tasks-page v-if="currentRoute === 'tasks'" @toast="toast" />
+        <jobs-page v-if="currentRoute === 'jobs'" @toast="toast" />
+        <export-page v-if="currentRoute === 'export'" @toast="toast" />
       </main-layout>
     </div>
   `,
@@ -723,6 +1020,8 @@ const App = {
     MainLayout,
     ChannelsPage,
     TasksPage,
+    JobsPage,
+    ExportPage,
     ToastContainer,
   },
 };

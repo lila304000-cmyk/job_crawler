@@ -107,4 +107,35 @@ const api = {
   listTaskLogs(id, limit = 50) {
     return request("GET", `/tasks/${id}/logs`, null, { limit });
   },
+
+  // 岗位
+  listJobs(params) {
+    return request("GET", "/jobs", null, params);
+  },
+  getJob(id) {
+    return request("GET", `/jobs/${id}`);
+  },
+  getJobStats() {
+    return request("GET", "/jobs/stats");
+  },
+  standardizeJobs(taskId) {
+    return request("POST", "/jobs/standardize", null, taskId ? { task_id: taskId } : null);
+  },
+
+  // Excel 导出（返回 Blob）
+  exportExcel(taskId, standardizedOnly = true) {
+    const url = new URL("/api/jobs/export", window.location.origin);
+    if (taskId) url.searchParams.append("task_id", taskId);
+    url.searchParams.append("standardized_only", standardizedOnly);
+    return fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${getToken()}` },
+    }).then(async (resp) => {
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.message || "导出失败");
+      }
+      return resp.blob();
+    });
+  },
 };

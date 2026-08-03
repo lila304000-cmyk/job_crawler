@@ -67,6 +67,12 @@ class JobRecord(Base):
     salary = Column(String(255), default="", comment="薪资")
     description = Column(Text, default="", comment="职位描述")
     raw_data = Column(JSON, default=dict, comment="原始爬取数据")
+
+    # 标准化字段
+    is_standardized = Column(Boolean, default=False, comment="是否已标准化")
+    standardized_at = Column(DateTime, nullable=True, comment="标准化时间")
+    standardized_data = Column(JSON, default=dict, comment="标准化后的模板对齐数据")
+    matched_skills = Column(JSON, default=list, comment="匹配到的标准技能标签")
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     task = relationship("Task", back_populates="jobs")

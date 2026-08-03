@@ -32,6 +32,7 @@ backend/data/
 # Data files
 *.csv
 *.xlsx
+!data/templates/*.xlsx
 
 # Env
 .env

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Channel, CrawlLog, JobRecord, Task
+from services.standardizer import StandardizerService
 
 
 class GenericScraper:
@@ -420,4 +421,17 @@ class GenericScraper:
 
 async def run_scraper(db: AsyncSession, task_id: int, channel_id: int) -> Dict[str, Any]:
     scraper = GenericScraper(db, task_id, channel_id)
-    return await scraper.run()
+    result = await scraper.run()
+
+    # 采集完成后自动触发标准化
+    if result.get("status") in ("success", "failed") and result.get("saved", 0) > 0:
+        try:
+            standardizer = StandardizerService(db)
+            std_stats = await standardizer.standardize_task_jobs(task_id)
+            result["standardized"] = std_stats
+            await scraper._log("info", f"自动标准化完成: 处理{std_stats['processed']}条, 更新{std_stats['updated']}条")
+        except Exception as e:
+            await scraper._log("error", f"自动标准化失败: {e}")
+            result["standardized"] = {"error": str(e)}
+
+    return result

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from config import settings
 from database import engine, Base
 from auth import init_admin_user
-from routers import auth, channels, tasks
+from routers import auth, channels, jobs, tasks
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -57,6 +57,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, prefix="/api")
 app.include_router(channels.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
+app.include_router(jobs.router, prefix="/api")
 
 
 # 静态前端资源
