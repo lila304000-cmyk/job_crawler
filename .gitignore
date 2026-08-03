@@ -9,6 +9,7 @@ dist/
 build/
 
 # Virtualenv
+.venv/
 venv/
 env/
 ENV/
@@ -27,6 +28,10 @@ Thumbs.db
 backend/data/
 *.db
 *.sqlite3
+
+# Data files
+*.csv
+*.xlsx
 
 # Env
 .env
